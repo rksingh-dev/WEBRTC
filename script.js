@@ -9,30 +9,22 @@ if (!location.hash) {
   // Room name needs to be prefixed with 'observable-'
   const roomName = 'observable-' + roomHash;
   
-  // Updated configuration with multiple STUN and TURN servers
+  // Optimized configuration with fewer, more reliable STUN/TURN servers
   const configuration = {
     iceServers: [
       {
         urls: [
           'stun:stun.l.google.com:19302',
-          'stun:stun1.l.google.com:19302',
-          'stun:stun2.l.google.com:19302',
-          'stun:stun3.l.google.com:19302',
-          'stun:stun4.l.google.com:19302'
+          'stun:stun1.l.google.com:19302'
         ]
       },
       {
         urls: 'turn:numb.viagenie.ca',
         credential: 'muazkh',
         username: 'webrtc@live.com'
-      },
-      {
-        urls: 'turn:turn.anyfirewall.com:443?transport=tcp',
-        credential: 'webrtc',
-        username: 'webrtc'
       }
     ],
-    iceCandidatePoolSize: 10
+    iceCandidatePoolSize: 5
   };
   
   let room;
