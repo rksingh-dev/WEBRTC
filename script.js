@@ -39,6 +39,7 @@ if (!location.hash) {
   let localStream;
   const peers = {};
   const pendingCandidates = {};
+  let isPolite = false;
   
   
   function onSuccess() {};
@@ -59,6 +60,10 @@ if (!location.hash) {
   
     room.on('members', members => {
       console.log('MEMBERS', members);
+      // Determine if we're the polite peer (the one who joins second)
+      isPolite = members.length > 1;
+      console.log('Is polite peer:', isPolite);
+      
       // Create peer connections for all existing members
       members.forEach(member => {
         if (member.id !== drone.clientId) {
@@ -96,35 +101,60 @@ if (!location.hash) {
         // Store any pending candidates
         pendingCandidates[client.id] = [];
         
-        pc.setRemoteDescription(new RTCSessionDescription(message.sdp))
-          .then(() => {
-            console.log('Remote description set successfully');
-            // Add any pending candidates
-            if (pendingCandidates[client.id]) {
-              pendingCandidates[client.id].forEach(candidate => {
-                pc.addIceCandidate(new RTCIceCandidate(candidate))
-                  .catch(e => console.error('Error adding pending candidate:', e));
-              });
-              pendingCandidates[client.id] = [];
-            }
+        const offerCollision = 
+          (pc.signalingState !== 'stable' && !isPolite) ||
+          pc.signalingState === 'have-local-offer';
+    
+        if (offerCollision) {
+          console.log('Offer collision detected, rolling back...');
+          Promise.all([
+            pc.setLocalDescription({type: 'rollback'}),
+            pc.setRemoteDescription(new RTCSessionDescription(message.sdp))
+          ]).then(() => {
             return pc.createAnswer();
-          })
-          .then(answer => {
-            console.log('Answer created successfully');
+          }).then(answer => {
             return pc.setLocalDescription(answer);
-          })
-          .then(() => {
-            console.log('Local description set successfully');
+          }).then(() => {
             sendMessage({
               type: 'answer',
               sdp: pc.localDescription,
               to: client.id
             });
-          })
-          .catch(error => {
-            console.error('Error during offer/answer exchange:', error);
+          }).catch(error => {
+            console.error('Error handling offer collision:', error);
             onError(error);
           });
+        } else {
+          pc.setRemoteDescription(new RTCSessionDescription(message.sdp))
+            .then(() => {
+              console.log('Remote description set successfully');
+              // Add any pending candidates
+              if (pendingCandidates[client.id]) {
+                pendingCandidates[client.id].forEach(candidate => {
+                  pc.addIceCandidate(new RTCIceCandidate(candidate))
+                    .catch(e => console.error('Error adding pending candidate:', e));
+                });
+                pendingCandidates[client.id] = [];
+              }
+              return pc.createAnswer();
+            })
+            .then(answer => {
+              console.log('Answer created successfully');
+              return pc.setLocalDescription(answer);
+            })
+            .then(() => {
+              console.log('Local description set successfully');
+              sendMessage({
+                type: 'answer',
+                sdp: pc.localDescription,
+                to: client.id
+              });
+            })
+            .catch(error => {
+              console.error('Error during offer/answer exchange:', error);
+              onError(error);
+            });
+        }
       } else if (message.type === 'answer') {
         pc.setRemoteDescription(new RTCSessionDescription(message.sdp))
           .then(() => {
@@ -190,6 +220,25 @@ if (!location.hash) {
       console.log('Signaling state:', pc.signalingState);
     };
   
+    // Add negotiation needed handler
+    pc.onnegotiationneeded = async () => {
+      try {
+        if (!isPolite) {
+          console.log('Creating offer due to negotiation needed');
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          sendMessage({
+            type: 'offer',
+            sdp: pc.localDescription,
+            to: memberId
+          });
+        }
+      } catch (error) {
+        console.error('Error during negotiation:', error);
+        onError(error);
+      }
+    };
+  
     pc.onicecandidate = event => {
       if (event.candidate) {
         console.log('New ICE candidate:', event.candidate);
@@ -216,24 +265,26 @@ if (!location.hash) {
       });
     }
   
-    // Create and send offer
-    pc.createOffer()
-      .then(offer => {
-        console.log('Offer created successfully');
-        return pc.setLocalDescription(offer);
-      })
-      .then(() => {
-        console.log('Local description set successfully');
-        sendMessage({
-          type: 'offer',
-          sdp: pc.localDescription,
-          to: memberId
+    // Only create offer if we're the impolite peer (first to join)
+    if (!isPolite) {
+      pc.createOffer()
+        .then(offer => {
+          console.log('Offer created successfully');
+          return pc.setLocalDescription(offer);
+        })
+        .then(() => {
+          console.log('Local description set successfully');
+          sendMessage({
+            type: 'offer',
+            sdp: pc.localDescription,
+            to: memberId
+          });
+        })
+        .catch(error => {
+          console.error('Error creating/sending offer:', error);
+          onError(error);
         });
-      })
-      .catch(error => {
-        console.error('Error creating/sending offer:', error);
-        onError(error);
-      });
+    }
   
     return pc;
   }
