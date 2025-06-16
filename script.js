@@ -23,18 +23,17 @@ if (!location.hash) {
     console.error(error);
   };
   
-  drone.on('open', error => {
-    if (error) {
-      return console.error(error);
-    }
+  // Initialize room and set up event handlers
+  function initializeRoom() {
     room = drone.subscribe(roomName);
+    
     room.on('open', error => {
       if (error) {
-        onError(error);
+        return console.error(error);
       }
+      console.log('Connected to room');
     });
-    // We're connected to the room and received an array of 'members'
-    // connected to the room (including us). Signaling server is ready.
+  
     room.on('members', members => {
       console.log('MEMBERS', members);
       // Create peer connections for all existing members
@@ -58,13 +57,37 @@ if (!location.hash) {
         removeVideoElement(member.id);
       }
     });
-  });
   
-  // Send signaling data via Scaledrone
-  function sendMessage(message) {
-    drone.publish({
-      room: roomName,
-      message
+    // Handle incoming messages
+    room.on('data', (message, client) => {
+      if (client.id === drone.clientId) {
+        return;
+      }
+    
+      const pc = peers[client.id];
+      if (!pc) {
+        return;
+      }
+    
+      if (message.type === 'offer') {
+        pc.setRemoteDescription(new RTCSessionDescription(message.sdp))
+          .then(() => pc.createAnswer())
+          .then(answer => pc.setLocalDescription(answer))
+          .then(() => {
+            sendMessage({
+              type: 'answer',
+              sdp: pc.localDescription,
+              to: client.id
+            });
+          })
+          .catch(onError);
+      } else if (message.type === 'answer') {
+        pc.setRemoteDescription(new RTCSessionDescription(message.sdp))
+          .catch(onError);
+      } else if (message.type === 'candidate') {
+        pc.addIceCandidate(new RTCIceCandidate(message.candidate))
+          .catch(onError);
+      }
     });
   }
   
@@ -127,36 +150,19 @@ if (!location.hash) {
     }
   }
   
-  // Handle incoming messages
-  room.on('data', (message, client) => {
-    if (client.id === drone.clientId) {
-      return;
-    }
+  function sendMessage(message) {
+    drone.publish({
+      room: roomName,
+      message
+    });
+  }
   
-    const pc = peers[client.id];
-    if (!pc) {
-      return;
+  // Initialize when drone connection is open
+  drone.on('open', error => {
+    if (error) {
+      return console.error(error);
     }
-  
-    if (message.type === 'offer') {
-      pc.setRemoteDescription(new RTCSessionDescription(message.sdp))
-        .then(() => pc.createAnswer())
-        .then(answer => pc.setLocalDescription(answer))
-        .then(() => {
-          sendMessage({
-            type: 'answer',
-            sdp: pc.localDescription,
-            to: client.id
-          });
-        })
-        .catch(onError);
-    } else if (message.type === 'answer') {
-      pc.setRemoteDescription(new RTCSessionDescription(message.sdp))
-        .catch(onError);
-    } else if (message.type === 'candidate') {
-      pc.addIceCandidate(new RTCIceCandidate(message.candidate))
-        .catch(onError);
-    }
+    initializeRoom();
   });
   
   // Get local media stream
