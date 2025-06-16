@@ -9,7 +9,7 @@ if (!location.hash) {
   // Room name needs to be prefixed with 'observable-'
   const roomName = 'observable-' + roomHash;
   
-  // Optimized configuration with fewer, more reliable STUN/TURN servers
+  // Updated configuration with more reliable TURN server
   const configuration = {
     iceServers: [
       {
@@ -19,9 +19,19 @@ if (!location.hash) {
         ]
       },
       {
-        urls: 'turn:numb.viagenie.ca',
-        credential: 'muazkh',
-        username: 'webrtc@live.com'
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
       }
     ],
     iceCandidatePoolSize: 5
@@ -32,6 +42,7 @@ if (!location.hash) {
   const peers = {};
   const pendingCandidates = {};
   let isPolite = false;
+  const MAX_PARTICIPANTS = 3;
   
   
   function onSuccess() {};
@@ -52,6 +63,14 @@ if (!location.hash) {
   
     room.on('members', members => {
       console.log('MEMBERS', members);
+      
+      // Check if room is full
+      if (members.length > MAX_PARTICIPANTS) {
+        console.log('Room is full, maximum participants reached');
+        alert('Room is full. Maximum 3 participants allowed.');
+        return;
+      }
+  
       // Determine if we're the polite peer (the one who joins second)
       isPolite = members.length > 1;
       console.log('Is polite peer:', isPolite);
@@ -66,6 +85,14 @@ if (!location.hash) {
   
     room.on('member_join', member => {
       console.log('MEMBER JOINED', member);
+      
+      // Check if room is full
+      if (Object.keys(peers).length >= MAX_PARTICIPANTS - 1) {
+        console.log('Room is full, rejecting new connection');
+        alert('Room is full. Maximum 3 participants allowed.');
+        return;
+      }
+      
       createPeerConnection(member.id);
     });
   
