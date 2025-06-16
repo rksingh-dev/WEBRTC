@@ -38,6 +38,7 @@ if (!location.hash) {
   let room;
   let localStream;
   const peers = {};
+  const pendingCandidates = {};
   
   
   function onSuccess() {};
@@ -92,9 +93,20 @@ if (!location.hash) {
       }
     
       if (message.type === 'offer') {
+        // Store any pending candidates
+        pendingCandidates[client.id] = [];
+        
         pc.setRemoteDescription(new RTCSessionDescription(message.sdp))
           .then(() => {
             console.log('Remote description set successfully');
+            // Add any pending candidates
+            if (pendingCandidates[client.id]) {
+              pendingCandidates[client.id].forEach(candidate => {
+                pc.addIceCandidate(new RTCIceCandidate(candidate))
+                  .catch(e => console.error('Error adding pending candidate:', e));
+              });
+              pendingCandidates[client.id] = [];
+            }
             return pc.createAnswer();
           })
           .then(answer => {
@@ -115,18 +127,38 @@ if (!location.hash) {
           });
       } else if (message.type === 'answer') {
         pc.setRemoteDescription(new RTCSessionDescription(message.sdp))
-          .then(() => console.log('Answer set successfully'))
+          .then(() => {
+            console.log('Answer set successfully');
+            // Add any pending candidates
+            if (pendingCandidates[client.id]) {
+              pendingCandidates[client.id].forEach(candidate => {
+                pc.addIceCandidate(new RTCIceCandidate(candidate))
+                  .catch(e => console.error('Error adding pending candidate:', e));
+              });
+              pendingCandidates[client.id] = [];
+            }
+          })
           .catch(error => {
             console.error('Error setting answer:', error);
             onError(error);
           });
       } else if (message.type === 'candidate') {
-        pc.addIceCandidate(new RTCIceCandidate(message.candidate))
-          .then(() => console.log('ICE candidate added successfully'))
-          .catch(error => {
-            console.error('Error adding ICE candidate:', error);
-            onError(error);
-          });
+        if (pc.remoteDescription && pc.remoteDescription.type) {
+          // If we have a remote description, add the candidate
+          pc.addIceCandidate(new RTCIceCandidate(message.candidate))
+            .then(() => console.log('ICE candidate added successfully'))
+            .catch(error => {
+              console.error('Error adding ICE candidate:', error);
+              onError(error);
+            });
+        } else {
+          // Otherwise, store it for later
+          if (!pendingCandidates[client.id]) {
+            pendingCandidates[client.id] = [];
+          }
+          pendingCandidates[client.id].push(message.candidate);
+          console.log('Stored pending ICE candidate');
+        }
       }
     });
   }
@@ -147,6 +179,15 @@ if (!location.hash) {
     // Add ICE connection state change handler
     pc.oniceconnectionstatechange = () => {
       console.log('ICE connection state:', pc.iceConnectionState);
+      if (pc.iceConnectionState === 'failed') {
+        console.log('ICE connection failed, attempting to restart...');
+        pc.restartIce();
+      }
+    };
+  
+    // Add signaling state change handler
+    pc.onsignalingstatechange = () => {
+      console.log('Signaling state:', pc.signalingState);
     };
   
     pc.onicecandidate = event => {
