@@ -8,11 +8,33 @@ if (!location.hash) {
   const drone = new ScaleDrone('yiS12Ts5RdNhebyM');
   // Room name needs to be prefixed with 'observable-'
   const roomName = 'observable-' + roomHash;
+  
+  // Updated configuration with multiple STUN and TURN servers
   const configuration = {
-    iceServers: [{
-      urls: 'stun:stun.l.google.com:19302'
-    }]
+    iceServers: [
+      {
+        urls: [
+          'stun:stun.l.google.com:19302',
+          'stun:stun1.l.google.com:19302',
+          'stun:stun2.l.google.com:19302',
+          'stun:stun3.l.google.com:19302',
+          'stun:stun4.l.google.com:19302'
+        ]
+      },
+      {
+        urls: 'turn:numb.viagenie.ca',
+        credential: 'muazkh',
+        username: 'webrtc@live.com'
+      },
+      {
+        urls: 'turn:turn.anyfirewall.com:443?transport=tcp',
+        credential: 'webrtc',
+        username: 'webrtc'
+      }
+    ],
+    iceCandidatePoolSize: 10
   };
+  
   let room;
   let localStream;
   const peers = {};
@@ -20,7 +42,7 @@ if (!location.hash) {
   
   function onSuccess() {};
   function onError(error) {
-    console.error(error);
+    console.error('Error:', error);
   };
   
   // Initialize room and set up event handlers
@@ -71,22 +93,40 @@ if (!location.hash) {
     
       if (message.type === 'offer') {
         pc.setRemoteDescription(new RTCSessionDescription(message.sdp))
-          .then(() => pc.createAnswer())
-          .then(answer => pc.setLocalDescription(answer))
           .then(() => {
+            console.log('Remote description set successfully');
+            return pc.createAnswer();
+          })
+          .then(answer => {
+            console.log('Answer created successfully');
+            return pc.setLocalDescription(answer);
+          })
+          .then(() => {
+            console.log('Local description set successfully');
             sendMessage({
               type: 'answer',
               sdp: pc.localDescription,
               to: client.id
             });
           })
-          .catch(onError);
+          .catch(error => {
+            console.error('Error during offer/answer exchange:', error);
+            onError(error);
+          });
       } else if (message.type === 'answer') {
         pc.setRemoteDescription(new RTCSessionDescription(message.sdp))
-          .catch(onError);
+          .then(() => console.log('Answer set successfully'))
+          .catch(error => {
+            console.error('Error setting answer:', error);
+            onError(error);
+          });
       } else if (message.type === 'candidate') {
         pc.addIceCandidate(new RTCIceCandidate(message.candidate))
-          .catch(onError);
+          .then(() => console.log('ICE candidate added successfully'))
+          .catch(error => {
+            console.error('Error adding ICE candidate:', error);
+            onError(error);
+          });
       }
     });
   }
@@ -95,8 +135,23 @@ if (!location.hash) {
     const pc = new RTCPeerConnection(configuration);
     peers[memberId] = pc;
   
+    // Add connection state change handler
+    pc.onconnectionstatechange = () => {
+      console.log('Connection state:', pc.connectionState);
+      if (pc.connectionState === 'failed') {
+        console.log('Connection failed, attempting to restart ICE...');
+        pc.restartIce();
+      }
+    };
+  
+    // Add ICE connection state change handler
+    pc.oniceconnectionstatechange = () => {
+      console.log('ICE connection state:', pc.iceConnectionState);
+    };
+  
     pc.onicecandidate = event => {
       if (event.candidate) {
+        console.log('New ICE candidate:', event.candidate);
         sendMessage({
           type: 'candidate',
           candidate: event.candidate,
@@ -106,6 +161,7 @@ if (!location.hash) {
     };
   
     pc.ontrack = event => {
+      console.log('Received remote track');
       const stream = event.streams[0];
       if (!document.getElementById(`video-${memberId}`)) {
         addVideoElement(memberId, stream);
@@ -121,15 +177,22 @@ if (!location.hash) {
   
     // Create and send offer
     pc.createOffer()
-      .then(offer => pc.setLocalDescription(offer))
+      .then(offer => {
+        console.log('Offer created successfully');
+        return pc.setLocalDescription(offer);
+      })
       .then(() => {
+        console.log('Local description set successfully');
         sendMessage({
           type: 'offer',
           sdp: pc.localDescription,
           to: memberId
         });
       })
-      .catch(onError);
+      .catch(error => {
+        console.error('Error creating/sending offer:', error);
+        onError(error);
+      });
   
     return pc;
   }
@@ -139,6 +202,7 @@ if (!location.hash) {
     const video = document.createElement('video');
     video.id = `video-${memberId}`;
     video.autoplay = true;
+    video.playsInline = true;
     video.srcObject = stream;
     videoContainer.appendChild(video);
   }
@@ -179,4 +243,7 @@ if (!location.hash) {
         pc.addTrack(track, stream);
       });
     });
-  }, onError);
+  }, error => {
+    console.error('Error accessing media devices:', error);
+    onError(error);
+  });
