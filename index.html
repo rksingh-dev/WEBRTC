@@ -82,62 +82,6 @@
       backdrop-filter: blur(5px);
     }
     
-    .controls {
-      position: fixed;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      display: flex;
-      gap: 15px;
-      z-index: 100;
-    }
-    
-    .control-btn {
-      width: 50px;
-      height: 50px;
-      border-radius: 50%;
-      border: none;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 20px;
-      transition: all 0.3s ease;
-      backdrop-filter: blur(10px);
-      box-shadow: 
-        rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
-        rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
-    }
-    
-    .control-btn:hover {
-      transform: scale(1.1);
-      box-shadow: 
-        rgba(0, 0, 0, 0.2) 0px 10px 25px -5px,
-        rgba(0, 0, 0, 0.1) 0px 10px 10px -5px;
-    }
-    
-    .control-btn:active {
-      transform: scale(0.95);
-    }
-    
-    .camera-btn {
-      background: rgba(34, 197, 94, 0.8);
-      color: white;
-    }
-    
-    .camera-btn.off {
-      background: rgba(239, 68, 68, 0.8);
-    }
-    
-    .mic-btn {
-      background: rgba(34, 197, 94, 0.8);
-      color: white;
-    }
-    
-    .mic-btn.off {
-      background: rgba(239, 68, 68, 0.8);
-    }
-    
     .connection-status {
       position: fixed;
       bottom: 20px;
@@ -162,21 +106,6 @@
       background: rgba(239, 68, 68, 0.8);
     }
     
-    .video-off-overlay {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: #1a1a1a;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-size: 18px;
-      font-weight: 500;
-    }
-    
     @media (max-width: 768px) {
       .video-container {
         grid-template-columns: 1fr;
@@ -191,16 +120,6 @@
         font-size: 14px;
         padding: 8px 16px;
       }
-      
-      .controls {
-        bottom: 100px;
-      }
-      
-      .control-btn {
-        width: 45px;
-        height: 45px;
-        font-size: 18px;
-      }
     }
   </style>
 </head>
@@ -210,9 +129,6 @@
   <div class="video-container">
     <div class="video-wrapper">
       <video id="localVideo" autoplay muted></video>
-      <div id="localVideoOff" class="video-off-overlay" style="display: none;">
-        📹 Camera Off
-      </div>
       <div class="video-label">You</div>
     </div>
     <div class="video-wrapper">
@@ -223,15 +139,6 @@
       <video id="remoteVideo2" autoplay></video>
       <div class="video-label">User 3</div>
     </div>
-  </div>
-  
-  <div class="controls">
-    <button id="cameraBtn" class="control-btn camera-btn" title="Toggle Camera">
-      📹
-    </button>
-    <button id="micBtn" class="control-btn mic-btn" title="Toggle Microphone">
-      🎤
-    </button>
   </div>
   
   <div id="connectionStatus" class="connection-status status-connecting">
