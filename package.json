@@ -1,0 +1,15 @@
+{
+  "name": "webrtc-video-chat",
+  "version": "1.0.0",
+  "description": "A WebRTC 3-user video chat application",
+  "main": "script.js",
+  "scripts": {
+    "dev": "http-server . -p 3000 -o"
+  },
+  "keywords": ["webrtc", "video-chat", "peer-to-peer"],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}
