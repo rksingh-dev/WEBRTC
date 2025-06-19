@@ -20,12 +20,21 @@ let peerConnections = {}; // Store multiple peer connections
 let connectedPeers = new Set(); // Track connected peers
 const maxUsers = 3;
 
+// Media state tracking
+let isCameraOn = true;
+let isMicOn = true;
+
 // Get video elements
 const localVideo = document.getElementById('localVideo');
+const localVideoOff = document.getElementById('localVideoOff');
 const remoteVideo1 = document.getElementById('remoteVideo1');
 const remoteVideo2 = document.getElementById('remoteVideo2');
 const remoteVideos = [remoteVideo1, remoteVideo2];
 const connectionStatus = document.getElementById('connectionStatus');
+
+// Get control elements
+const cameraBtn = document.getElementById('cameraBtn');
+const micBtn = document.getElementById('micBtn');
 
 function onSuccess() {}
 
@@ -38,6 +47,46 @@ function updateConnectionStatus(message, statusClass) {
   connectionStatus.textContent = message;
   connectionStatus.className = `connection-status ${statusClass}`;
 }
+
+// Media control functions
+function toggleCamera() {
+  if (localStream) {
+    const videoTrack = localStream.getVideoTracks()[0];
+    if (videoTrack) {
+      videoTrack.enabled = !videoTrack.enabled;
+      isCameraOn = videoTrack.enabled;
+      
+      // Update UI
+      cameraBtn.classList.toggle('off', !isCameraOn);
+      cameraBtn.textContent = isCameraOn ? '📹' : '📹';
+      localVideoOff.style.display = isCameraOn ? 'none' : 'flex';
+      
+      // Update button title
+      cameraBtn.title = isCameraOn ? 'Turn Camera Off' : 'Turn Camera On';
+    }
+  }
+}
+
+function toggleMicrophone() {
+  if (localStream) {
+    const audioTrack = localStream.getAudioTracks()[0];
+    if (audioTrack) {
+      audioTrack.enabled = !audioTrack.enabled;
+      isMicOn = audioTrack.enabled;
+      
+      // Update UI
+      micBtn.classList.toggle('off', !isMicOn);
+      micBtn.textContent = isMicOn ? '🎤' : '🔇';
+      
+      // Update button title
+      micBtn.title = isMicOn ? 'Mute Microphone' : 'Unmute Microphone';
+    }
+  }
+}
+
+// Event listeners for controls
+cameraBtn.addEventListener('click', toggleCamera);
+micBtn.addEventListener('click', toggleMicrophone);
 
 drone.on('open', error => {
   if (error) {
@@ -101,6 +150,47 @@ drone.on('open', error => {
       }
       
       updateConnectionStatus(`Connected users: ${Object.keys(peerConnections).length + 1}/${maxUsers}`, 'status-connected');
+    }
+  });
+
+  // Listen to signaling data from Scaledrone
+  room.on('data', (data, client) => {
+    // Message was sent by us
+    if (client.id === drone.clientId) {
+      return;
+    }
+
+    const message = data.message;
+    const fromId = message.from;
+    
+    // Ignore messages not meant for us
+    if (message.to && message.to !== drone.clientId) {
+      return;
+    }
+
+    const pc = peerConnections[fromId];
+    if (!pc) {
+      console.warn('No peer connection for:', fromId);
+      return;
+    }
+
+    if (message.type === 'offer') {
+      pc.setRemoteDescription(new RTCSessionDescription(message.sdp))
+        .then(() => pc.createAnswer())
+        .then(answer => pc.setLocalDescription(answer))
+        .then(() => {
+          sendMessage({
+            type: 'answer',
+            sdp: pc.localDescription
+          }, fromId);
+        })
+        .catch(onError);
+    } else if (message.type === 'answer') {
+      pc.setRemoteDescription(new RTCSessionDescription(message.sdp))
+        .catch(onError);
+    } else if (message.type === 'candidate') {
+      pc.addIceCandidate(new RTCIceCandidate(message.candidate))
+        .catch(onError);
     }
   });
 });
@@ -176,6 +266,19 @@ function createPeerConnection(peerId, isOfferer) {
     };
   }
 
+  // Handle connection state changes
+  pc.onconnectionstatechange = () => {
+    console.log(`Connection state with ${peerId}:`, pc.connectionState);
+    
+    if (pc.connectionState === 'connected') {
+      connectedPeers.add(peerId);
+    } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+      connectedPeers.delete(peerId);
+    }
+    
+    updateConnectionStatus(`Connected users: ${connectedPeers.size + 1}/${maxUsers}`, 'status-connected');
+  };
+
   return pc;
 }
 
@@ -194,72 +297,12 @@ navigator.mediaDevices.getUserMedia({
     });
   });
   
+  // Initialize control button states
+  cameraBtn.title = 'Turn Camera Off';
+  micBtn.title = 'Mute Microphone';
+  
   updateConnectionStatus('Camera and microphone ready', 'status-connected');
 }).catch(error => {
   console.error('Error accessing media devices:', error);
   updateConnectionStatus('Camera/microphone access denied', 'status-disconnected');
 });
-
-// Listen to signaling data from Scaledrone
-room && room.on('data', (data, client) => {
-  // Message was sent by us
-  if (client.id === drone.clientId) {
-    return;
-  }
-
-  const message = data.message;
-  const fromId = message.from;
-  
-  // Ignore messages not meant for us
-  if (message.to && message.to !== drone.clientId) {
-    return;
-  }
-
-  const pc = peerConnections[fromId];
-  if (!pc) {
-    console.warn('No peer connection for:', fromId);
-    return;
-  }
-
-  if (message.type === 'offer') {
-    pc.setRemoteDescription(new RTCSessionDescription(message.sdp))
-      .then(() => pc.createAnswer())
-      .then(answer => pc.setLocalDescription(answer))
-      .then(() => {
-        sendMessage({
-          type: 'answer',
-          sdp: pc.localDescription
-        }, fromId);
-      })
-      .catch(onError);
-  } else if (message.type === 'answer') {
-    pc.setRemoteDescription(new RTCSessionDescription(message.sdp))
-      .catch(onError);
-  } else if (message.type === 'candidate') {
-    pc.addIceCandidate(new RTCIceCandidate(message.candidate))
-      .catch(onError);
-  }
-});
-
-// Handle connection state changes
-function setupConnectionStateHandling(pc, peerId) {
-  pc.onconnectionstatechange = () => {
-    console.log(`Connection state with ${peerId}:`, pc.connectionState);
-    
-    if (pc.connectionState === 'connected') {
-      connectedPeers.add(peerId);
-    } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-      connectedPeers.delete(peerId);
-    }
-    
-    updateConnectionStatus(`Connected users: ${connectedPeers.size + 1}/${maxUsers}`, 'status-connected');
-  };
-}
-
-// Update createPeerConnection to include connection state handling
-const originalCreatePeerConnection = createPeerConnection;
-createPeerConnection = function(peerId, isOfferer) {
-  const pc = originalCreatePeerConnection(peerId, isOfferer);
-  setupConnectionStateHandling(pc, peerId);
-  return pc;
-};
